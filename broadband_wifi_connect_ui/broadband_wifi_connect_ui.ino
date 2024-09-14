@@ -208,7 +208,7 @@ static void password_text_area_event_handler(lv_event_t *e) {
 
     const char *txt = lv_textarea_get_text(objects.password_text_area);
     strncpy(password,txt,sizeof(password));
-    ssid[sizeof(password)-1] ='\0';
+    password[sizeof(password)-1] ='\0';
 
     
 
