@@ -10,10 +10,10 @@
 
 //********************* mqtt setup ******************************
 
-const char* mqtt_broker = "192.168.1.111"; // The IP address of your Mosquitto broker
+const char* mqtt_broker = "162.254.34.64"; // The IP address of your Mosquitto broker
 const int mqtt_port = 1883;
-const char* mqtt_username = "user";
-const char* mqtt_password = "password";
+const char* mqtt_username = "lucky7n1";
+const char* mqtt_password = "P@ssw0rd";
 
 //********************* mqtt setup ******************************
 
