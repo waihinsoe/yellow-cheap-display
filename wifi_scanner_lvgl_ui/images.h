@@ -12,6 +12,9 @@ extern const lv_img_dsc_t img_setting_icon;
 extern const lv_img_dsc_t img_cross_icon;
 extern const lv_img_dsc_t img_wifi_connect_icon;
 extern const lv_img_dsc_t img_success_icon;
+extern const lv_img_dsc_t img_temp_icon;
+extern const lv_img_dsc_t img_humi_icon;
+extern const lv_img_dsc_t img_pressure_icon;
 
 #ifndef EXT_IMG_DESC_T
 #define EXT_IMG_DESC_T
@@ -21,7 +24,7 @@ typedef struct _ext_img_desc_t {
 } ext_img_desc_t;
 #endif
 
-extern const ext_img_desc_t images[5];
+extern const ext_img_desc_t images[8];
 
 
 #ifdef __cplusplus

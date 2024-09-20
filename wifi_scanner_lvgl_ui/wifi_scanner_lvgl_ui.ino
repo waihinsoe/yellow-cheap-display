@@ -7,6 +7,11 @@
 #include <XPT2046_Touchscreen.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
+#include <HTTPClient.h>
+
+//********************* http setup *****************************
+const char* serverURL = "http://192.168.1.9:3000";
+
 
 //********************* mqtt setup ******************************
 
@@ -15,10 +20,12 @@ const int mqtt_port = 1883;
 const char* mqtt_username = "lucky7n1";
 const char* mqtt_password = "P@ssw0rd";
 
-//********************* mqtt setup ******************************
 
 WiFiClient espClient;
 PubSubClient client(espClient);
+
+//********************* mqtt setup ******************************
+
 
 #define XPT2046_IRQ 36
 #define XPT2046_MOSI 32
@@ -82,13 +89,15 @@ String ssid;
 char password[100];
 int connection_attempts = 0;
 
+int location_status = 1;
+
 void setup() {
 
   //Some basic info on the Serial console
-  String LVGL_Arduino = "LVGL demo ";
-  LVGL_Arduino += String('V') + lv_version_major() + "." + lv_version_minor() + "." + lv_version_patch();
+  // String LVGL_Arduino = "LVGL demo ";
+  // LVGL_Arduino += String('V') + lv_version_major() + "." + lv_version_minor() + "." + lv_version_patch();
   Serial.begin(115200);
-  Serial.println(LVGL_Arduino);
+  // Serial.println(LVGL_Arduino);
 
   //Initialise the touchscreen
   touchscreenSpi.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS); /* Start second SPI bus for touchscreen */
@@ -123,6 +132,9 @@ void setup() {
   lv_obj_add_event_cb(objects.password_text_area, password_text_area_event_handler, LV_EVENT_ALL, NULL);
   lv_obj_add_event_cb(objects.connect_btn, connect_btn_event_handler, LV_EVENT_ALL ,NULL);
   lv_obj_add_event_cb(objects.alert_pop_up_close_btn,alert_pop_up_close_btn_event_handler, LV_EVENT_ALL,NULL);
+  lv_obj_add_event_cb(objects.light_switch,light_switch_event_handler, LV_EVENT_ALL,NULL);
+  lv_obj_add_event_cb(objects.location_dropdown,location_dropdown_event_handler, LV_EVENT_VALUE_CHANGED,NULL);
+  
 
 }
 
@@ -165,28 +177,142 @@ void callback(char* topic, byte* payload, unsigned int length) {
     return;
   }
 
+  // if(location_status == 1) {
 
-  if(String(topic) == "esp01_C/light/status") {
+  //   if(String(topic) == "indoor/esp8266_A/light/status") {
+  //     if(doc.containsKey("status")) {
+  //       int status = doc["status"].as<int>();
+  //       if(status) {
+  //         lv_obj_add_state(objects.light_switch, LV_STATE_CHECKED);
+  //       }else{
+  //         lv_obj_clear_state(objects.light_switch, LV_STATE_CHECKED);
+  //       }
+  //     }
+  //   }else if(String(topic) == "indoor/esp8266_A/dht22") {
+  //     if(doc.containsKey("temperature") && doc.containsKey("humidity")) {
+  //       int temp = doc["temperature"].as<int>();
+  //       String tempLabelText = String(temp);
+  //       lv_label_set_text(objects.temp_value, tempLabelText.c_str());
 
-    if(doc.containsKey("status")) {
-      int status = doc["status"].as<int>();
-      if(status) {
-        lv_label_set_text(objects.light_status_label, "light: ON");
-      }else{
-        lv_label_set_text(objects.light_status_label, "light: OFF");
-      }
+  //       int humi = doc["humidity"].as<int>();
+  //       String humiLabelText = String(humi);
+  //       lv_label_set_text(objects.humi_value, humiLabelText.c_str());
+  //     }
+  //   } else if(String(topic) == "indoor/esp8266_A/bmp180") {
+  //     if(doc.containsKey("pressure")) {
+  //       long pressure = doc["pressure"].as<long>();
+  //       String pressureLabelText = String(pressure);
+  //       lv_label_set_text(objects.pressure_value, pressureLabelText.c_str());
+  //     }
+  //   }
+
+  // }
+
+  if (location_status == 1) {
+
+    if (strcmp(topic, "indoor/esp8266_A/light/status") == 0) {
+        if (doc.containsKey("status")) {
+            int status = doc["status"].as<int>();
+            if (status) {
+                lv_obj_add_state(objects.light_switch, LV_STATE_CHECKED);
+            } else {
+                lv_obj_clear_state(objects.light_switch, LV_STATE_CHECKED);
+            }
+        }
+
+    } else if (strcmp(topic, "indoor/esp8266_A/dht22") == 0) {
+        if (doc.containsKey("temperature") && doc.containsKey("humidity")) {
+            // Use snprintf instead of String class
+            int temp = doc["temperature"].as<int>();
+            char tempLabelText[10];
+            snprintf(tempLabelText, sizeof(tempLabelText), "%d", temp);
+            lv_label_set_text(objects.temp_value, tempLabelText);
+
+            int humi = doc["humidity"].as<int>();
+            char humiLabelText[10];
+            snprintf(humiLabelText, sizeof(humiLabelText), "%d", humi);
+            lv_label_set_text(objects.humi_value, humiLabelText);
+        }
+
+    } else if (strcmp(topic, "indoor/esp8266_A/bmp180") == 0) {
+        if (doc.containsKey("pressure")) {
+            long pressure = doc["pressure"].as<long>();
+            char pressureLabelText[15];
+            snprintf(pressureLabelText, sizeof(pressureLabelText), "%ld", pressure);
+            lv_label_set_text(objects.pressure_value, pressureLabelText);
+        }
     }
-  }else if(String(topic) == "esp01_A/dht22") {
-    if(doc.containsKey("temperature") && doc.containsKey("humidity")) {
-      int temp = doc["temperature"].as<int>();
-      String tempLabelText = "Temp: "+String(temp)+"°C";
-      lv_label_set_text(objects.dht22_temp_label, tempLabelText.c_str());
+}
 
-      int humi = doc["humidity"].as<int>();
-      String humiLabelText = "Humi: "+String(humi)+"%";
-      lv_label_set_text(objects.dht22_humi_label, humiLabelText.c_str());
+  // if(location_status == 2) {
+  //   if(String(topic) == "outdoor/esp8266_B/light/status") {
+  //     if(doc.containsKey("status")) {
+  //       int status = doc["status"].as<int>();
+  //       if(status) {
+  //         lv_obj_add_state(objects.light_switch, LV_STATE_CHECKED);
+  //       }else{
+  //         lv_obj_clear_state(objects.light_switch, LV_STATE_CHECKED);
+  //       }
+  //     }
+  //   }else if(String(topic) == "outdoor/esp8266_B/dht22") {
+  //     if(doc.containsKey("temperature") && doc.containsKey("humidity")) {
+  //       int temp = doc["temperature"].as<int>();
+  //       String tempLabelText = String(temp);
+  //       lv_label_set_text(objects.temp_value, tempLabelText.c_str());
+
+  //       int humi = doc["humidity"].as<int>();
+  //       String humiLabelText = String(humi);
+  //       lv_label_set_text(objects.humi_value, humiLabelText.c_str());
+  //     }
+  //   } else if(String(topic) == "outdoor/esp8266_B/bmp180") {
+  //     if(doc.containsKey("pressure")) {
+  //       long pressure = doc["pressure"].as<long>();
+  //       String pressureLabelText = String(pressure);
+  //       lv_label_set_text(objects.pressure_value, pressureLabelText.c_str());
+  //     }
+  //   }
+
+  // }
+
+  if (location_status == 2) {
+
+    if (strcmp(topic, "outdoor/esp8266_B/light/status") == 0) {
+        if (doc.containsKey("status")) {
+            int status = doc["status"].as<int>();
+            if (status) {
+                lv_obj_add_state(objects.light_switch, LV_STATE_CHECKED);
+            } else {
+                lv_obj_clear_state(objects.light_switch, LV_STATE_CHECKED);
+            }
+        }
+
+    } else if (strcmp(topic, "outdoor/esp8266_B/dht22") == 0) {
+        if (doc.containsKey("temperature") && doc.containsKey("humidity")) {
+            // Use snprintf instead of String class
+            int temp = doc["temperature"].as<int>();
+            char tempLabelText[10];
+            snprintf(tempLabelText, sizeof(tempLabelText), "%d", temp);
+            lv_label_set_text(objects.temp_value, tempLabelText);
+
+            int humi = doc["humidity"].as<int>();
+            char humiLabelText[10];
+            snprintf(humiLabelText, sizeof(humiLabelText), "%d", humi);
+            lv_label_set_text(objects.humi_value, humiLabelText);
+        }
+
+    } else if (strcmp(topic, "outdoor/esp8266_B/bmp180") == 0) {
+        if (doc.containsKey("pressure")) {
+            long pressure = doc["pressure"].as<long>();
+            char pressureLabelText[15];
+            snprintf(pressureLabelText, sizeof(pressureLabelText), "%ld", pressure);
+            lv_label_set_text(objects.pressure_value, pressureLabelText);
+        }
     }
-  }
+}
+
+
+
+
 
 }
 
@@ -199,12 +325,16 @@ void reconnect() {
     last_try = now;
     if(!client.connected()) {
       Serial.println("Attempting MQTT connection...");
-      if (client.connect("ESP32Client",mqtt_username, mqtt_password)) {
+      if (client.connect("ESP32_CYD",mqtt_username, mqtt_password)) {
         Serial.println("connected");
         client.publish("ESP32_CYD", "hello from ESP32");
-        client.subscribe("esp01_A/dht22");
-        client.subscribe("esp01_B/bmp180");
-        client.subscribe("esp01_C/light/status");
+        client.subscribe("indoor/esp8266_A/bmp180");
+        client.subscribe("indoor/esp8266_A/dht22");
+        client.subscribe("indoor/esp8266_A/light/status");
+
+        client.subscribe("outdoor/esp8266_B/bmp180");
+        client.subscribe("outdoor/esp8266_B/dht22");
+        client.subscribe("outdoor/esp8266_B/light/status");
       } else {
         Serial.print("failed, rc=");
         Serial.print(client.state());
@@ -229,7 +359,11 @@ void reconnect() {
   //     Serial.println(" try again in 5 seconds");
   //   }
   // }
+
+  
 }
+
+
 
 
 
@@ -261,20 +395,56 @@ static void wifi_switch_event_handler(lv_event_t *e) {
       WiFi.disconnect();
       lv_obj_clean(objects.wifi_list);
       lv_list_add_text(objects.wifi_list, "Scanning for WiFi networks...");
-      Serial.println("Scanning for WiFi networks...");
+      // Serial.println("Scanning for WiFi networks...");
 
       // Start an asynchronous WiFi network scan
       WiFi.scanNetworks(true);
 
       // This is just to update the status; actual completion is checked elsewhere
-      Serial.println("Status: ON");
+      // Serial.println("Status: ON");
     } else {
       WiFi.disconnect();
       lv_obj_clean(objects.wifi_list);
-      Serial.println("Status: OFF");
+      // Serial.println("Status: OFF");
     }
   }
 }
+
+static void light_switch_event_handler(lv_event_t *e) {
+  lv_event_code_t code = lv_event_get_code(e);
+  if (code == LV_EVENT_VALUE_CHANGED) {
+    if (lv_obj_has_state(objects.light_switch, LV_STATE_CHECKED)) {
+      if(location_status == 1) {
+        client.publish("indoor/esp8266_A/light/status","{\"status\": 1}");
+      }else if(location_status ==2) {
+        client.publish("outdoor/esp8266_B/light/status","{\"status\": 1}");
+      }
+    } else {
+      if(location_status == 1) {
+        client.publish("indoor/esp8266_A/light/status","{\"status\": 0}");
+      }else if(location_status ==2) {
+        client.publish("outdoor/esp8266_B/light/status","{\"status\": 0}");
+      }
+    }
+  }
+}
+
+
+static void location_dropdown_event_handler(lv_event_t *e) {
+  char buf[32];
+  lv_dropdown_get_selected_str(objects.location_dropdown, buf, sizeof(buf));
+  
+  if(strcmp(buf, "indoor") == 0) {
+    printf("indoor is selected!\n");
+    location_status = 1;
+    fetchData();
+  }else if(strcmp(buf, "outdoor") == 0) {
+    printf("outdoor is selected!\n");   
+    location_status = 2;
+    fetchData();
+  }
+}
+
 
 // This function should be called in your main loop or a periodic timer
 void updateWiFiScanResults() {
@@ -282,18 +452,18 @@ void updateWiFiScanResults() {
     lv_obj_clean(objects.wifi_list);
     int numberOfNetworks = WiFi.scanComplete();
     if (numberOfNetworks == 0) {
-      Serial.println("No networks found");
+      // Serial.println("No networks found");
       lv_list_add_text(objects.wifi_list, "No WiFi networks found.");
     } else {
       Serial.print(numberOfNetworks);
-      Serial.println(" networks found");
+      // Serial.println(" networks found");
       for (int i = 0; i < numberOfNetworks; ++i) {
-        Serial.print(i + 1);
-        Serial.print(": ");
-        Serial.print(WiFi.SSID(i));
-        Serial.print(" (");
-        Serial.print(WiFi.RSSI(i));
-        Serial.println(" dBm)");
+        // Serial.print(i + 1);
+        // Serial.print(": ");
+        // Serial.print(WiFi.SSID(i));
+        // Serial.print(" (");
+        // Serial.print(WiFi.RSSI(i));
+        // Serial.println(" dBm)");
 
         lv_obj_t* btn = lv_list_add_button(objects.wifi_list, LV_SYMBOL_WIFI, WiFi.SSID(i).c_str());
         lv_obj_add_event_cb(btn, list_btn_event_handler, LV_EVENT_CLICKED, btn);
@@ -353,8 +523,8 @@ static void connect_btn_event_handler(lv_event_t *e) {
         lv_obj_clear_flag(objects.alert_pop_up_container, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(objects.loading_ui_container, LV_OBJ_FLAG_HIDDEN);
 
-        Serial.print("SSID: "); Serial.println(ssid);
-        Serial.print("PASSWORD: "); Serial.println(password);
+        // Serial.print("SSID: "); Serial.println(ssid);
+        // Serial.print("PASSWORD: "); Serial.println(password);
 
         // Begin connection attempt
         WiFi.begin(ssid.c_str(), password);
