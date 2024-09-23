@@ -1,4 +1,6 @@
 
+#define DEBUG  // comment and uncomment to debung
+
 #include "WiFi.h"
 #include <lvgl.h>
 #include "ui.h"
@@ -7,7 +9,6 @@
 #include <XPT2046_Touchscreen.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
-#include <HTTPClient.h>
 
 //********************* http setup *****************************
 const char* serverURL = "http://192.168.1.9:3000";
@@ -88,17 +89,40 @@ uint32_t lastTick = 0;  //Used to track the tick timer
 String ssid;
 char password[100];
 int connection_attempts = 0;
-
 int location_status = 1;
+StaticJsonDocument<512> doc;  // Adjust size based on your payload's typical size
+
+// ******************** function decleration ****************************
+void updateTemperatureHumidityUI(const JsonDocument& doc);
+void updatePressureUI(const JsonDocument& doc);
+void processLightStatus(const JsonDocument& doc);
+void reconnect();
+void start_wifi_connect_checker();
+void wifi_status_checker(lv_timer_t * timer);
+void updateWiFiScanResults();
+
+static void setting_icon_event_handler(lv_event_t *e);
+static void pop_up_close_event_handler(lv_event_t *e);
+static void wifi_switch_event_handler(lv_event_t *e);
+static void light_switch_event_handler(lv_event_t *e);
+static void location_dropdown_event_handler(lv_event_t *e);
+static void list_btn_event_handler(lv_event_t *e);
+static void connect_pop_up_close_event_handler(lv_event_t *e);
+static void password_text_area_event_handler(lv_event_t *e);
+static void connect_btn_event_handler(lv_event_t *e);
+static void alert_pop_up_close_btn_event_handler(lv_event_t *e);
+
+void callback(char* topic, byte* payload, unsigned int length);
 
 void setup() {
 
   //Some basic info on the Serial console
-  // String LVGL_Arduino = "LVGL demo ";
-  // LVGL_Arduino += String('V') + lv_version_major() + "." + lv_version_minor() + "." + lv_version_patch();
+  #ifdef DEBUG
+  String LVGL_Arduino = "LVGL demo ";
+  LVGL_Arduino += String('V') + lv_version_major() + "." + lv_version_minor() + "." + lv_version_patch();
   Serial.begin(115200);
-  // Serial.println(LVGL_Arduino);
-
+  Serial.println(LVGL_Arduino);
+  #endif
   //Initialise the touchscreen
   touchscreenSpi.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS); /* Start second SPI bus for touchscreen */
   touchscreen.begin(touchscreenSpi);                                         /* Touchscreen init */
@@ -116,9 +140,9 @@ void setup() {
   lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
   lv_indev_set_read_cb(indev, my_touchpad_read);
 
-  //Done
+  #ifdef DEBUG
   Serial.println("LVGL Setup done");
-
+  #endif
   //Integrate EEZ Studio GUI
   ui_init();
 
@@ -150,167 +174,90 @@ void loop() {
     }
     client.loop();  // Process MQTT loop
   } 
-  // else {
-  //   Serial.println("WiFi not connected. Waiting to retry...");
-  // }
+  else {
+    // #ifdef DEBUG
+    // Serial.println("WiFi not connected. Waiting to retry...");
+    // #endif
+  }
 
   delay(5);
 }
 
 void callback(char* topic, byte* payload, unsigned int length) {
+  #ifdef DEBUG
   Serial.print("Message arrived [");
   Serial.print(topic);
-  Serial.print("] ");
+  Serial.println("] ");
+  #endif
 
-  String payloadStr;
-  for (int i = 0; i < length; i++) {
-    payloadStr += (char)payload[i];
-  }
-  Serial.println(payloadStr); // Print the string version of the payload
+  bool isIndoor = strstr(topic,"indoor/esp8266_A") != NULL;
+  bool isOutdoor = strstr(topic,"outdoor/esp8266_B") != NULL;
 
-  StaticJsonDocument<200> doc;
-  DeserializationError error = deserializeJson(doc,payloadStr);
+  if((location_status == 1 && isIndoor) || (location_status == 2 && isOutdoor)) {
+    char buf[length+1];
+    memcpy(buf, payload, length);
+    buf[length] = '\0';
 
-  if(error) {
-    Serial.print("DeserializeJson() failed: ");
-    Serial.println(error.f_str());
-    return;
-  }
+    auto error = deserializeJson(doc,buf);
 
-  // if(location_status == 1) {
-
-  //   if(String(topic) == "indoor/esp8266_A/light/status") {
-  //     if(doc.containsKey("status")) {
-  //       int status = doc["status"].as<int>();
-  //       if(status) {
-  //         lv_obj_add_state(objects.light_switch, LV_STATE_CHECKED);
-  //       }else{
-  //         lv_obj_clear_state(objects.light_switch, LV_STATE_CHECKED);
-  //       }
-  //     }
-  //   }else if(String(topic) == "indoor/esp8266_A/dht22") {
-  //     if(doc.containsKey("temperature") && doc.containsKey("humidity")) {
-  //       int temp = doc["temperature"].as<int>();
-  //       String tempLabelText = String(temp);
-  //       lv_label_set_text(objects.temp_value, tempLabelText.c_str());
-
-  //       int humi = doc["humidity"].as<int>();
-  //       String humiLabelText = String(humi);
-  //       lv_label_set_text(objects.humi_value, humiLabelText.c_str());
-  //     }
-  //   } else if(String(topic) == "indoor/esp8266_A/bmp180") {
-  //     if(doc.containsKey("pressure")) {
-  //       long pressure = doc["pressure"].as<long>();
-  //       String pressureLabelText = String(pressure);
-  //       lv_label_set_text(objects.pressure_value, pressureLabelText.c_str());
-  //     }
-  //   }
-
-  // }
-
-  if (location_status == 1) {
-
-    if (strcmp(topic, "indoor/esp8266_A/light/status") == 0) {
-        if (doc.containsKey("status")) {
-            int status = doc["status"].as<int>();
-            if (status) {
-                lv_obj_add_state(objects.light_switch, LV_STATE_CHECKED);
-            } else {
-                lv_obj_clear_state(objects.light_switch, LV_STATE_CHECKED);
-            }
-        }
-
-    } else if (strcmp(topic, "indoor/esp8266_A/dht22") == 0) {
-        if (doc.containsKey("temperature") && doc.containsKey("humidity")) {
-            // Use snprintf instead of String class
-            int temp = doc["temperature"].as<int>();
-            char tempLabelText[10];
-            snprintf(tempLabelText, sizeof(tempLabelText), "%d", temp);
-            lv_label_set_text(objects.temp_value, tempLabelText);
-
-            int humi = doc["humidity"].as<int>();
-            char humiLabelText[10];
-            snprintf(humiLabelText, sizeof(humiLabelText), "%d", humi);
-            lv_label_set_text(objects.humi_value, humiLabelText);
-        }
-
-    } else if (strcmp(topic, "indoor/esp8266_A/bmp180") == 0) {
-        if (doc.containsKey("pressure")) {
-            long pressure = doc["pressure"].as<long>();
-            char pressureLabelText[15];
-            snprintf(pressureLabelText, sizeof(pressureLabelText), "%ld", pressure);
-            lv_label_set_text(objects.pressure_value, pressureLabelText);
-        }
+    if(error) {
+      #ifdef DEBUG
+      Serial.print("DeserializeJson() failed: ");
+      Serial.println(error.f_str());
+      #endif
+      return;
     }
-}
 
-  // if(location_status == 2) {
-  //   if(String(topic) == "outdoor/esp8266_B/light/status") {
-  //     if(doc.containsKey("status")) {
-  //       int status = doc["status"].as<int>();
-  //       if(status) {
-  //         lv_obj_add_state(objects.light_switch, LV_STATE_CHECKED);
-  //       }else{
-  //         lv_obj_clear_state(objects.light_switch, LV_STATE_CHECKED);
-  //       }
-  //     }
-  //   }else if(String(topic) == "outdoor/esp8266_B/dht22") {
-  //     if(doc.containsKey("temperature") && doc.containsKey("humidity")) {
-  //       int temp = doc["temperature"].as<int>();
-  //       String tempLabelText = String(temp);
-  //       lv_label_set_text(objects.temp_value, tempLabelText.c_str());
-
-  //       int humi = doc["humidity"].as<int>();
-  //       String humiLabelText = String(humi);
-  //       lv_label_set_text(objects.humi_value, humiLabelText.c_str());
-  //     }
-  //   } else if(String(topic) == "outdoor/esp8266_B/bmp180") {
-  //     if(doc.containsKey("pressure")) {
-  //       long pressure = doc["pressure"].as<long>();
-  //       String pressureLabelText = String(pressure);
-  //       lv_label_set_text(objects.pressure_value, pressureLabelText.c_str());
-  //     }
-  //   }
-
-  // }
-
-  if (location_status == 2) {
-
-    if (strcmp(topic, "outdoor/esp8266_B/light/status") == 0) {
-        if (doc.containsKey("status")) {
-            int status = doc["status"].as<int>();
-            if (status) {
-                lv_obj_add_state(objects.light_switch, LV_STATE_CHECKED);
-            } else {
-                lv_obj_clear_state(objects.light_switch, LV_STATE_CHECKED);
-            }
-        }
-
-    } else if (strcmp(topic, "outdoor/esp8266_B/dht22") == 0) {
-        if (doc.containsKey("temperature") && doc.containsKey("humidity")) {
-            // Use snprintf instead of String class
-            int temp = doc["temperature"].as<int>();
-            char tempLabelText[10];
-            snprintf(tempLabelText, sizeof(tempLabelText), "%d", temp);
-            lv_label_set_text(objects.temp_value, tempLabelText);
-
-            int humi = doc["humidity"].as<int>();
-            char humiLabelText[10];
-            snprintf(humiLabelText, sizeof(humiLabelText), "%d", humi);
-            lv_label_set_text(objects.humi_value, humiLabelText);
-        }
-
-    } else if (strcmp(topic, "outdoor/esp8266_B/bmp180") == 0) {
-        if (doc.containsKey("pressure")) {
-            long pressure = doc["pressure"].as<long>();
-            char pressureLabelText[15];
-            snprintf(pressureLabelText, sizeof(pressureLabelText), "%ld", pressure);
-            lv_label_set_text(objects.pressure_value, pressureLabelText);
-        }
+    if (strcmp(topic, "indoor/esp8266_A/light/status") == 0 || strcmp(topic, "outdoor/esp8266_B/light/status") == 0) {
+      processLightStatus(doc);
+    } else if (strcmp(topic, "indoor/esp8266_A/dht22") == 0 || strcmp(topic, "outdoor/esp8266_B/dht22") == 0 ) {
+      updateTemperatureHumidityUI(doc);
+    } else if (strcmp(topic, "indoor/esp8266_A/bmp180") == 0 || strcmp(topic, "outdoor/esp8266_B/bmp180") == 0 ) {
+      updatePressureUI(doc);
     }
+
+  }else {
+    #ifdef DEBUG
+    Serial.println("Received topic not relavant to the current context.");
+    #endif
+  }
 }
 
+void updateTemperatureHumidityUI(const JsonDocument& doc) {
+  if (doc.containsKey("temperature") && doc.containsKey("humidity")) {
+    // Use snprintf instead of String class
+    int temp = doc["temperature"].as<int>();
+    char tempLabelText[10];
+    snprintf(tempLabelText, sizeof(tempLabelText), "%d", temp);
+    lv_label_set_text(objects.temp_value, tempLabelText);
+
+    int humi = doc["humidity"].as<int>();
+    char humiLabelText[10];
+    snprintf(humiLabelText, sizeof(humiLabelText), "%d", humi);
+    lv_label_set_text(objects.humi_value, humiLabelText);
+  }
 }
+
+void updatePressureUI(const JsonDocument& doc) {
+  if (doc.containsKey("pressure")) {
+    long pressure = doc["pressure"].as<long>();
+    char pressureLabelText[15];
+    snprintf(pressureLabelText, sizeof(pressureLabelText), "%ld", pressure);
+    lv_label_set_text(objects.pressure_value, pressureLabelText);
+  }
+}
+
+void processLightStatus(const JsonDocument& doc) {
+  if (doc.containsKey("status")) {
+    int status = doc["status"].as<int>();
+    if (status) {
+      lv_obj_add_state(objects.light_switch, LV_STATE_CHECKED);
+    } else {
+      lv_obj_clear_state(objects.light_switch, LV_STATE_CHECKED);
+    }
+  }
+}
+
 
 void reconnect() {
   static unsigned long last_try = 0;
@@ -320,9 +267,13 @@ void reconnect() {
   if(now - last_try > 5000) {
     last_try = now;
     if(!client.connected()) {
+      #ifdef DEBUG
       Serial.println("Attempting MQTT connection...");
+      #endif
       if (client.connect("ESP32_CYD",mqtt_username, mqtt_password)) {
+        #ifdef DEBUG
         Serial.println("connected");
+        #endif
         client.publish("ESP32_CYD", "hello from ESP32");
         client.subscribe("indoor/esp8266_A/bmp180");
         client.subscribe("indoor/esp8266_A/dht22");
@@ -331,10 +282,14 @@ void reconnect() {
         client.subscribe("outdoor/esp8266_B/bmp180");
         client.subscribe("outdoor/esp8266_B/dht22");
         client.subscribe("outdoor/esp8266_B/light/status");
+
+        client.publish("last_updated_data/indoor","1");
       } else {
+        #ifdef DUBUG
         Serial.print("failed, rc=");
         Serial.print(client.state());
         Serial.println(" try again in 5 seconds");
+        #endif
       }
     }
 
@@ -359,10 +314,6 @@ void reconnect() {
   
 }
 
-
-
-
-
 static void setting_icon_event_handler(lv_event_t *e) {
   lv_event_code_t code = lv_event_get_code(e);
 
@@ -371,7 +322,6 @@ static void setting_icon_event_handler(lv_event_t *e) {
   }
 
 }
-
 
 static void pop_up_close_event_handler(lv_event_t *e) {
   lv_event_code_t code = lv_event_get_code(e);
@@ -391,17 +341,21 @@ static void wifi_switch_event_handler(lv_event_t *e) {
       WiFi.disconnect();
       lv_obj_clean(objects.wifi_list);
       lv_list_add_text(objects.wifi_list, "Scanning for WiFi networks...");
-      // Serial.println("Scanning for WiFi networks...");
-
+      #ifdef DEBUG
+      Serial.println("Scanning for WiFi networks...");
+      // This is just to update the status; actual completion is checked elsewhere
+      Serial.println("Status: ON");
+      #endif
       // Start an asynchronous WiFi network scan
       WiFi.scanNetworks(true);
 
-      // This is just to update the status; actual completion is checked elsewhere
-      // Serial.println("Status: ON");
+
     } else {
       WiFi.disconnect();
       lv_obj_clean(objects.wifi_list);
-      // Serial.println("Status: OFF");
+      #ifdef DEBUG
+      Serial.println("Status: OFF");
+      #endif
     }
   }
 }
@@ -433,11 +387,11 @@ static void location_dropdown_event_handler(lv_event_t *e) {
   if(strcmp(buf, "indoor") == 0) {
     printf("indoor is selected!\n");
     location_status = 1;
-    fetchData();
+    client.publish("last_updated_data/indoor","1");
   }else if(strcmp(buf, "outdoor") == 0) {
     printf("outdoor is selected!\n");   
     location_status = 2;
-    fetchData();
+    client.publish("last_updated_data/outdoor","1");
   }
 }
 
@@ -448,24 +402,32 @@ void updateWiFiScanResults() {
     lv_obj_clean(objects.wifi_list);
     int numberOfNetworks = WiFi.scanComplete();
     if (numberOfNetworks == 0) {
-      // Serial.println("No networks found");
+      #ifdef DEBUG
+      Serial.println("No networks found");
+      #endif
       lv_list_add_text(objects.wifi_list, "No WiFi networks found.");
     } else {
+      #ifdef DEBUG
       Serial.print(numberOfNetworks);
-      // Serial.println(" networks found");
+      Serial.println(" networks found");
+      #endif
       for (int i = 0; i < numberOfNetworks; ++i) {
-        // Serial.print(i + 1);
-        // Serial.print(": ");
-        // Serial.print(WiFi.SSID(i));
-        // Serial.print(" (");
-        // Serial.print(WiFi.RSSI(i));
-        // Serial.println(" dBm)");
+        #ifdef DEBUG
+        Serial.print(i + 1);
+        Serial.print(": ");
+        Serial.print(WiFi.SSID(i));
+        Serial.print(" (");
+        Serial.print(WiFi.RSSI(i));
+        Serial.println(" dBm)");
+        #endif
 
         lv_obj_t* btn = lv_list_add_button(objects.wifi_list, LV_SYMBOL_WIFI, WiFi.SSID(i).c_str());
         lv_obj_add_event_cb(btn, list_btn_event_handler, LV_EVENT_CLICKED, btn);
       }
     }
+    #ifdef DUBUG
     Serial.println("Scan complete");
+    #endif
     // Clear the scan results to ready for the next scan
     WiFi.scanDelete();
   }
@@ -476,7 +438,9 @@ static void list_btn_event_handler(lv_event_t *e) {
   lv_obj_t *btn = (lv_obj_t *)lv_event_get_user_data(e);
   if(code == LV_EVENT_CLICKED) {
     ssid = lv_list_get_button_text(objects.wifi_list,btn);
+    #ifdef DEBUG
     Serial.println(ssid);
+    #endif
     lv_obj_clear_flag(objects.connect_pop_up_container, LV_OBJ_FLAG_HIDDEN);
   }
 }
@@ -518,21 +482,22 @@ static void connect_btn_event_handler(lv_event_t *e) {
         // lv_obj_add_flag(objects.pop_up_container, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(objects.alert_pop_up_container, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(objects.loading_ui_container, LV_OBJ_FLAG_HIDDEN);
-
-        // Serial.print("SSID: "); Serial.println(ssid);
-        // Serial.print("PASSWORD: "); Serial.println(password);
-
+        #ifdef DEBUG
+        Serial.print("SSID: "); Serial.println(ssid);
+        Serial.print("PASSWORD: "); Serial.println(password);
+        #endif
         // Begin connection attempt
         WiFi.begin(ssid.c_str(), password);
+        #ifdef DEBUG
         Serial.print("Connecting to "); Serial.println(ssid);
-
+        #endif
         // Reset connection attempts
         connection_attempts = 0;
 
         // Start a non-blocking check
         start_wifi_connect_checker();
     }
-}
+} 
 
 void start_wifi_connect_checker() {
     lv_timer_t * timer = lv_timer_create(wifi_status_checker, 500, NULL);
@@ -541,9 +506,10 @@ void start_wifi_connect_checker() {
 
 void wifi_status_checker(lv_timer_t * timer) {
     if (WiFi.status() == WL_CONNECTED) {
+        #ifdef DUBUG
         Serial.println("\nWiFi connected successfully");
         Serial.print("IP Address: "); Serial.println(WiFi.localIP());
-
+        #endif
         // Update the UI to show success
         lv_obj_add_flag(objects.loading_ui_container, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(objects.success_ui_container, LV_OBJ_FLAG_HIDDEN);
@@ -556,17 +522,20 @@ void wifi_status_checker(lv_timer_t * timer) {
 
         // Check if maximum attempts reached
         if (connection_attempts > 20) { // Adjust max attempts as needed
+            #ifdef DEBUG
             Serial.println("\nFailed to connect to WiFi. Please check your credentials or network status.");
-
+            #endif
             // Update UI to show failure
             lv_obj_add_flag(objects.loading_ui_container, LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag(objects.success_ui_container, LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(objects.fail_ui_container, LV_OBJ_FLAG_HIDDEN); // Assume there's a failed UI container
             lv_img_set_src(objects.wifi_status, &img_wifi_disconnect_icon);
             lv_timer_del(timer); // Stop the timer
-        } else {
+        } else { 
+            #ifdef DEBUG
             // Still trying to connect, update UI if needed, e.g., spinning a spinner
             Serial.print(".");
+            #endif
         }
     }
 }
